@@ -1,0 +1,8 @@
+github.com/namsral/flag v1.7.4-pre h1:b2ScHhoCUkbsq0d2C15Mv+VU8bl8hAXV8arnWiOHNZs=
+github.com/namsral/flag v1.7.4-pre/go.mod h1:OXldTctbM6SWH1K899kPZcf65KxJiD7MsceFUpB5yDo=
+github.com/unrolled/logger v0.0.0-20190327162521-be1a2406c7c9 h1:EvwTdlXPJXfsN/6dXk+APSGfsGcBdHac6Cd3h7e2fao=
+github.com/unrolled/logger v0.0.0-20190327162521-be1a2406c7c9/go.mod h1:HcJOyWUnhRZ1GyZ+t+MYVSg4/B6eoIrxX2DB5UyTomI=
+goji.io v0.0.0-20181111194536-9a575ab427c3 h1:hTrgoKZCp1LIKw6rh5K8HHMzYldF15hG+kDyOO9Tpz4=
+goji.io v0.0.0-20181111194536-9a575ab427c3/go.mod h1:sbqFwrtqZACxLBTQcdgVjFh54yGVCvwq8+w49MVMMIk=
+goji.io v2.0.2+incompatible h1:uIssv/elbKRLznFUy3Xj4+2Mz/qKhek/9aZQDUMae7c=
+goji.io v2.0.2+incompatible/go.mod h1:sbqFwrtqZACxLBTQcdgVjFh54yGVCvwq8+w49MVMMIk=
