@@ -1,17 +1,21 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/namsral/flag"
 	"github.com/unrolled/logger"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 	"goji.io"
 	"goji.io/pat"
 	"log"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 )
 
 func main() {
@@ -38,7 +42,12 @@ func main() {
 
 	err = validateConfiguration()
 	if err != nil {
-		log.Fatalf("ERROR, invalid configuration: %s", err.Error())
+		log.Fatalf("ERROR invalid configuration: %s", err.Error())
+	}
+
+	_, err = connectToMongo()
+	if err != nil {
+		log.Fatalf("ERROR connecting to mongo: %s", err.Error())
 	}
 
 	rootMux := goji.NewMux()
@@ -174,6 +183,32 @@ func validateConfiguration() error {
 	} else {
 		return errors.New(strings.Join(configurationErrors, "\n"))
 	}
+}
+
+func connectToMongo() (*mongo.Client, error) {
+	log.Println("Connecting to mongo.")
+
+	client, err := mongo.NewClient(options.Client().ApplyURI(CommandLineParameters.MongoUrl))
+	if err != nil {
+		return nil, err
+	}
+
+	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
+	err = client.Connect(ctx)
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Check the connection
+	err = client.Ping(context.TODO(), nil)
+
+	if err != nil {
+		return nil, err
+	}
+
+	log.Println("Connected to MongoDB!")
+	return client, nil
 }
 
 func writeJsonResponse(w http.ResponseWriter, body interface{}) {
