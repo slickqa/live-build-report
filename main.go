@@ -62,6 +62,7 @@ func main() {
 	}).Handler)
 
 	webAppFilesHandler := http.StripPrefix(basePrefix, http.FileServer(http.Dir(CommandLineParameters.AppFilesPath)))
+	mux.Handle(pat.New("/"), webAppFilesHandler)
 	mux.Handle(pat.New("/:file.:ext"), webAppFilesHandler)
 	mux.Handle(pat.New("/static/*"), webAppFilesHandler)
 	mux.Handle(pat.New("/images/*"), webAppFilesHandler)
