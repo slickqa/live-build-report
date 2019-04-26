@@ -7,12 +7,16 @@ import (
 	"fmt"
 	"github.com/namsral/flag"
 	"github.com/unrolled/logger"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/mongo/readpref"
 	"goji.io"
 	"goji.io/pat"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -45,10 +49,16 @@ func main() {
 		log.Fatalf("ERROR invalid configuration: %s", err.Error())
 	}
 
-	_, err = connectToMongo()
+	client, err := connectToMongo()
 	if err != nil {
 		log.Fatalf("ERROR connecting to mongo: %s", err.Error())
 	}
+	defer func() {
+		err = client.Disconnect(context.Background())
+		if err != nil {
+			log.Fatalf("ERROR disconnecting from mongo: %s", err.Error())
+		}
+	}()
 
 	rootMux := goji.NewMux()
 	log.Printf("Configuring root prefix to be %#v", CommandLineParameters.BasePath)
@@ -127,7 +137,37 @@ type ReportConfiguration struct {
 	AgentImageUrlTemplate string
 }
 
+type CurrentlyRunningTest struct {
+	Id primitive.ObjectID `bson:"_id"`
+	Testcase map[string]interface{} `bson:"testcase"`
+	Reason string `bson:"reason"`
+	Attributes map[string]string `bson:"attributes"`
+	Hostname string `bson:"hostname"`
+	Started time.Time `bson:"started"`
+	Status string `bson:"status"`
+	Files []interface{} `bson:"files"`
+	Links []interface{} `bson:"links"`
+	Recorded time.Time `bson:"recorded"`
+}
+
+type ExtendedTestrunSummary struct {
+	Id interface{} `bson:"_id"`
+	Name string `bson:"name"`
+	TestplanId *primitive.ObjectID `bson:"testplanId"`
+	PASS int `bson:"PASS"`
+	FAIL int `bson:"FAIL"`
+	BROKEN_TEST int `bson:"BROKEN_TEST"`
+	SKIPPED int `bson:"SKIPPED"`
+	NO_RESULT int `bson:"NO_RESULT"`
+	SCHEDULED int `bson:"SCHEDULED"`
+	TO_BE_RUN int `bson:"TO_BE_RUN"`
+	RUNNING int `bson:"RUNNING"`
+	FINISHED int `bson:"FINISHED"`
+	CurrentlyRunning []CurrentlyRunningTest `bson:"currentlyRunning"`
+}
+
 var (
+	ResultsCollection *mongo.Collection
 	CommandLineParameters = Parameters{
 		ListenPort: 9111,
 		BasePath: "/",
@@ -137,9 +177,83 @@ var (
 		ReportPollInterval: 1000,
 		AgentImagePollInterval: 2000,
 	}
+	GroupStage = bson.M{
+		"$group": bson.M{
+			"_id":         "$testrun.testrunId",
+			"testplanId":  bson.M{ "$first": "$testplan.testplanId" },
+			"name":        bson.M{ "$first": "$testrun.name" },
+			"PASS":        counterFor("$status", "PASS"),
+			"FAIL":        counterFor("$status", "FAIL"),
+			"BROKEN_TEST": counterFor("$status", "BROKEN_TEST"),
+			"SKIPPED":     counterFor("$status", "SKIPPED"),
+			"NO_RESULT":   counterFor("$status", "NO_RESULT"),
+			"SCHEDULED":   counterFor("$runstatus", "SCHEDULED"),
+			"TO_BE_RUN":   counterFor("$runstatus", "TO_BE_RUN"),
+			"RUNNING":   counterFor("$runstatus", "RUNNING"),
+			"FINISHED":   counterFor("$runstatus", "FINISHED"),
+			"currentlyRunning": bson.M{
+				"$addToSet": bson.M{
+					"$cond": bson.M{
+						"if": bson.M{ "$eq": bson.A{ "$runstatus", "RUNNING" } },
+						"then": bson.M{
+							"_id": "$_id",
+							"testcase": "$testcase",
+							"reason": "$reason",
+							"attributes": "$attributes",
+							"started": "$started",
+							"recorded": "$recorded",
+							"hostname": "$hostname",
+							"status": "$status",
+							"files": "$files",
+							"links": "$links",
+						},
+						"else": nil,
+					},
+				},
+			},
+		},
+	}
+	CleanupGroupStage = bson.M{
+		"$addFields": bson.M{
+			"currentlyRunning": bson.M{
+				"$filter": bson.M{
+					"input": "$currentlyRunning",
+					"as": "d",
+					"cond": bson.M{ "$ne": bson.A{ "$$d", nil } },
+				},
+			},
+		},
+	}
 )
 
 // ------------ Business Logic --------------------------------------------
+
+func counterFor(name string, value string) bson.M {
+	return bson.M{
+		"$sum": bson.M{
+			"$cond": bson.M{
+				"if": bson.M{
+					"$eq": bson.A{ name, value },
+				},
+				"then": 1,
+				"else": 0,
+			},
+		},
+	}
+}
+
+func matchStageForBuildId(buildId string) (bson.M, error) {
+	id, err := primitive.ObjectIDFromHex(buildId)
+	if err != nil {
+		return bson.M{}, err
+	}
+
+	return bson.M{
+		"$match": bson.M{
+			"build.buildId": id,
+		},
+	}, nil
+}
 
 func sPrettyPrint(i interface{}) string {
 	s, _ := json.MarshalIndent(i, "", "\t")
@@ -201,10 +315,21 @@ func connectToMongo() (*mongo.Client, error) {
 	}
 
 	// Check the connection
-	err = client.Ping(context.TODO(), nil)
+	ctx, _ = context.WithTimeout(context.Background(), 2*time.Second)
+	err = client.Ping(ctx, readpref.Primary())
 
 	if err != nil {
 		return nil, err
+	}
+
+	connectUrl, err := url.Parse(CommandLineParameters.MongoUrl)
+	if err != nil {
+		return nil, fmt.Errorf("parsing mongo url %s", err.Error())
+	}
+	dbname := strings.TrimLeft(connectUrl.Path, "/")
+	ResultsCollection = client.Database(dbname).Collection("results")
+	if ResultsCollection == nil {
+		return nil, errors.New("no results collection returned from mongo")
 	}
 
 	log.Println("Connected to MongoDB!")
@@ -240,5 +365,36 @@ func reportConfigurationHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func buildReportHandler(w http.ResponseWriter, r *http.Request) {
+	buildId := pat.Param(r, "buildId")
+	MatchStage, err := matchStageForBuildId(buildId)
+	if err != nil {
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = fmt.Fprintf(w, "Invalid build id %#v", buildId)
+		return
+	}
+	cursor, err := ResultsCollection.Aggregate(context.Background(), bson.A{ MatchStage, GroupStage, CleanupGroupStage })
+	if err != nil {
+		log.Printf("Error aggregating data from database: %s", err.Error())
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = fmt.Fprintln(w, "Error occurred while trying to get data from database.")
+		return
+	}
+	ctx := context.Background()
+	var report []ExtendedTestrunSummary
+	for cursor.Next(ctx) {
+		var item ExtendedTestrunSummary
+		err = cursor.Decode(&item)
 
+		if err != nil {
+			log.Printf("Error decoding result of aggregation: %s", err.Error())
+			w.Header().Set("Content-Type", "text/plain")
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = fmt.Fprintln(w, "Error occurred while trying to get data from database.")
+			return
+		}
+		report = append(report, item)
+	}
+	writeJsonResponse(w, &report)
 }
