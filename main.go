@@ -93,7 +93,7 @@ func main() {
 	mux.HandleFunc(pat.New("/api/v2/config"), reportConfigurationHandler)
 	mux.HandleFunc(pat.New("/api/v2/build-report/:buildId"), buildReportHandler)
 	mux.HandleFunc(pat.New("/api/v2/builds"), recentBuildSummaryHandler)
-	mux.HandleFunc(pat.New("/api/b2/builds/:project"), recentBuildSummaryHandler)
+	mux.HandleFunc(pat.New("/api/v2/builds/:project"), recentBuildSummaryHandler)
 
 
 	// serve content
