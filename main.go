@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -89,8 +90,10 @@ func main() {
 		agentImagesHandler := http.StripPrefix(fmt.Sprintf("%s/agents", basePrefix), http.FileServer(http.Dir(CommandLineParameters.AgentImagesPath)))
 		mux.Handle(pat.New("/agents/*"), agentImagesHandler)
 	}
-	mux.HandleFunc(pat.New("/api/config"), reportConfigurationHandler)
-	mux.HandleFunc(pat.New("/api/build/:buildId"), buildReportHandler)
+	mux.HandleFunc(pat.New("/api/v2/config"), reportConfigurationHandler)
+	mux.HandleFunc(pat.New("/api/v2/build-report/:buildId"), buildReportHandler)
+	mux.HandleFunc(pat.New("/api/v2/builds"), recentBuildSummaryHandler)
+	mux.HandleFunc(pat.New("/api/b2/builds/:project"), recentBuildSummaryHandler)
 
 
 	// serve content
@@ -150,6 +153,41 @@ type CurrentlyRunningTest struct {
 	Recorded time.Time `bson:"recorded"`
 }
 
+type TestrunSummary struct {
+	Id interface{} `bson:"_id"`
+	Name string `bson:"name"`
+	TestplanId *primitive.ObjectID `bson:"testplanId"`
+	PASS int `bson:"PASS"`
+	FAIL int `bson:"FAIL"`
+	BROKEN_TEST int `bson:"BROKEN_TEST"`
+	SKIPPED int `bson:"SKIPPED"`
+	NO_RESULT int `bson:"NO_RESULT"`
+	SCHEDULED int `bson:"SCHEDULED"`
+	TO_BE_RUN int `bson:"TO_BE_RUN"`
+	RUNNING int `bson:"RUNNING"`
+	FINISHED int `bson:"FINISHED"`
+}
+
+type RecentBuildsBuild struct {
+	Id primitive.ObjectID `bson:"id"`
+	Name string `bson:"name"`
+	Built time.Time `bson:"built"`
+}
+
+type RecentBuildsRelease struct {
+	Id primitive.ObjectID `bson:"id"`
+	Status string `bson:"status"`
+	Name string `bson:"name"`
+	Build RecentBuildsBuild `bson:"builds"`
+}
+
+type RecentBuild struct {
+	ProjectId primitive.ObjectID `bson:"_id"`
+	ProjectName string `bson:"name"`
+	Release RecentBuildsRelease `bson:"releases"`
+	TestrunSummaries []TestrunSummary `bson:"testruns"`
+}
+
 type ExtendedTestrunSummary struct {
 	Id interface{} `bson:"_id"`
 	Name string `bson:"name"`
@@ -168,6 +206,7 @@ type ExtendedTestrunSummary struct {
 
 var (
 	ResultsCollection *mongo.Collection
+	ProjectsCollection *mongo.Collection
 	CommandLineParameters = Parameters{
 		ListenPort: 9111,
 		BasePath: "/",
@@ -177,7 +216,7 @@ var (
 		ReportPollInterval: 1000,
 		AgentImagePollInterval: 2000,
 	}
-	GroupStage = bson.M{
+	ExtendedSummaryGroupStage = bson.M{
 		"$group": bson.M{
 			"_id":         "$testrun.testrunId",
 			"testplanId":  bson.M{ "$first": "$testplan.testplanId" },
@@ -213,13 +252,55 @@ var (
 			},
 		},
 	}
-	CleanupGroupStage = bson.M{
+	CleanupExtendedSummaryGroupStage = bson.M{
 		"$addFields": bson.M{
 			"currentlyRunning": bson.M{
 				"$filter": bson.M{
 					"input": "$currentlyRunning",
 					"as": "d",
 					"cond": bson.M{ "$ne": bson.A{ "$$d", nil } },
+				},
+			},
+		},
+	}
+	RecentBuildsProjectStage = bson.M{
+		"$project": bson.M{
+			"name": "$name",
+			"releases": "$releases",
+		},
+	}
+	RecentBuildsFirstUnwindStage = bson.M{
+		"$unwind": bson.M{ "path": "$releases" },
+	}
+	RecentBuildsSecondUnwindStage = bson.M{
+		"$unwind": bson.M{ "path": "$releases.builds" },
+	}
+	RecentBuildsSortStage = bson.M{ "$sort": bson.M{ "releases.builds.id": -1 } }
+	RecentBuildsLookupStage = bson.M{
+		"$lookup": bson.M{
+			"from": "results",
+			"as": "testruns",
+			"let": bson.M{ "buildId": "$releases.builds.id" },
+			"pipeline": bson.A{
+				bson.M{
+					"$match": bson.M{ "$expr": bson.M{ "$eq": bson.A{ "$build.buildId", "$$buildId" } } },
+				},
+				bson.M{
+					"$group": bson.M{
+						"_id": "$testrun.testrunId",
+						"testplanId":  bson.M{ "$first": "$testplan.testplanId" },
+						"name":        bson.M{ "$first": "$testrun.name" },
+						"PASS":        counterFor("$status", "PASS"),
+						"FAIL":        counterFor("$status", "FAIL"),
+						"BROKEN_TEST": counterFor("$status", "BROKEN_TEST"),
+						"SKIPPED":     counterFor("$status", "SKIPPED"),
+						"NO_RESULT":   counterFor("$status", "NO_RESULT"),
+						"SCHEDULED":   counterFor("$runstatus", "SCHEDULED"),
+						"TO_BE_RUN":   counterFor("$runstatus", "TO_BE_RUN"),
+						"RUNNING":   counterFor("$runstatus", "RUNNING"),
+						"FINISHED":   counterFor("$runstatus", "FINISHED"),
+
+					},
 				},
 			},
 		},
@@ -328,6 +409,7 @@ func connectToMongo() (*mongo.Client, error) {
 	}
 	dbname := strings.TrimLeft(connectUrl.Path, "/")
 	ResultsCollection = client.Database(dbname).Collection("results")
+	ProjectsCollection = client.Database(dbname).Collection("projects")
 	if ResultsCollection == nil {
 		return nil, errors.New("no results collection returned from mongo")
 	}
@@ -373,7 +455,7 @@ func buildReportHandler(w http.ResponseWriter, r *http.Request) {
 		_, _ = fmt.Fprintf(w, "Invalid build id %#v", buildId)
 		return
 	}
-	cursor, err := ResultsCollection.Aggregate(context.Background(), bson.A{ MatchStage, GroupStage, CleanupGroupStage })
+	cursor, err := ResultsCollection.Aggregate(context.Background(), bson.A{ MatchStage, ExtendedSummaryGroupStage, CleanupExtendedSummaryGroupStage})
 	if err != nil {
 		log.Printf("Error aggregating data from database: %s", err.Error())
 		w.Header().Set("Content-Type", "text/plain")
@@ -397,4 +479,53 @@ func buildReportHandler(w http.ResponseWriter, r *http.Request) {
 		report = append(report, item)
 	}
 	writeJsonResponse(w, &report)
+}
+
+func recentBuildSummaryHandler(w http.ResponseWriter, r *http.Request) {
+	projectName := "all"
+	if strings.Contains(r.URL.Path, "builds/") {
+		projectName = pat.Param(r, "project")
+	}
+	count := 25
+	var err error
+	if len(r.URL.Query().Get("limit")) > 0 {
+		count, err = strconv.Atoi(r.URL.Query().Get("limit"))
+		if err != nil {
+			count = 25
+		}
+	}
+
+	pipeline := bson.A{}
+	if projectName != "all" {
+		pipeline = bson.A{ bson.M{"$match": bson.M{ "name": projectName } } }
+	}
+	pipeline = append(pipeline, RecentBuildsProjectStage, RecentBuildsFirstUnwindStage,
+		RecentBuildsSecondUnwindStage, RecentBuildsSortStage, bson.M{ "$limit": count }, RecentBuildsLookupStage )
+
+	cursor, err := ProjectsCollection.Aggregate(context.Background(), pipeline)
+	if err != nil {
+		log.Printf("Error aggregating data from database getting recent builds: %s", err.Error())
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = fmt.Fprintln(w, "Error occurred while trying to get recent builds from database.")
+		return
+	}
+
+	ctx := context.Background()
+	var builds []RecentBuild
+	for cursor.Next(ctx) {
+		var item RecentBuild
+		err = cursor.Decode(&item)
+
+		if err != nil {
+			log.Printf("Error decoding result of aggregation for recent builds: %s", err.Error())
+			w.Header().Set("Content-Type", "text/plain")
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = fmt.Fprintln(w, "Error occurred while trying to get recent builds from database.")
+			return
+		}
+
+		builds = append(builds, item)
+	}
+	writeJsonResponse(w, &builds)
 }
