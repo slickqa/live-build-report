@@ -90,10 +90,10 @@ func main() {
 		agentImagesHandler := http.StripPrefix(fmt.Sprintf("%s/agents", basePrefix), http.FileServer(http.Dir(CommandLineParameters.AgentImagesPath)))
 		mux.Handle(pat.New("/agents/*"), agentImagesHandler)
 	}
-	mux.HandleFunc(pat.New("/api/v2/config"), reportConfigurationHandler)
-	mux.HandleFunc(pat.New("/api/v2/build-report/:buildId"), buildReportHandler)
-	mux.HandleFunc(pat.New("/api/v2/builds"), recentBuildSummaryHandler)
-	mux.HandleFunc(pat.New("/api/v2/builds/:project"), recentBuildSummaryHandler)
+	mux.HandleFunc(pat.New("/api/config"), reportConfigurationHandler)
+	mux.HandleFunc(pat.New("/api/build-report/:buildId"), buildReportHandler)
+	mux.HandleFunc(pat.New("/api/builds"), recentBuildSummaryHandler)
+	mux.HandleFunc(pat.New("/api/builds/:project"), recentBuildSummaryHandler)
 
 
 	// serve content
