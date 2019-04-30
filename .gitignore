@@ -2,3 +2,6 @@
 .idea
 slickqa-live-build-report
 live-build-report
+web/node_modules
+web/build
+.DS_Store
