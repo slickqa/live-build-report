@@ -5,7 +5,7 @@ import { Box } from "grommet";
 export class Panel extends Component {
     render() {
         return(
-            <Box margin={this.props.margin} width={this.props.width} height={this.props.height} background={{color: "black", opacity: 0.6, dark: true}} pad="small" round="medium">
+            <Box margin={this.props.margin} width={this.props.width} height={this.props.height} background={{color: "black", opacity: 0.7, dark: true}} pad="small" round="medium">
                 {this.props.children}
             </Box>
         )
