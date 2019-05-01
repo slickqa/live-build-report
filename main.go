@@ -14,10 +14,12 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/readpref"
 	"goji.io"
 	"goji.io/pat"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -29,7 +31,6 @@ func main() {
 	flags.StringVar(&CommandLineParameters.BasePath, "base-url", CommandLineParameters.BasePath, "Base Path in URL for this service.")
 	flags.StringVar(&CommandLineParameters.ListenAddress, "addr", CommandLineParameters.ListenAddress, "Address to listen on")
 	flags.StringVar(&CommandLineParameters.AppFilesPath, "app-path", CommandLineParameters.AppFilesPath, "Path to HTML files for this app.")
-	flags.StringVar(&CommandLineParameters.AgentImagesPath,"agent-images-path", CommandLineParameters.AgentImagesPath, "Optional: file system path to serve images for the agents from. (served from base-path/agents/).")
 	flags.StringVar(&CommandLineParameters.MongoUrl,"mongo", CommandLineParameters.MongoUrl, "Mongo connect URL (slick database).")
 	flags.StringVar(&CommandLineParameters.AgentImageUrlTemplate,"agent-images", CommandLineParameters.AgentImageUrlTemplate, "Template for getting images for the agents.")
 	flags.StringVar(&CommandLineParameters.SlickUrl,"slick-url", CommandLineParameters.SlickUrl, "Base URL of slick")
@@ -61,6 +62,14 @@ func main() {
 		}
 	}()
 
+	Configuration = &ReportConfiguration{
+		SlickUrl: CommandLineParameters.SlickUrl,
+		AgentImageUrlTemplate: CommandLineParameters.AgentImageUrlTemplate,
+		AgentImagePollInterval: CommandLineParameters.AgentImagePollInterval,
+		ReportPollInterval: CommandLineParameters.ReportPollInterval,
+		Prefix: CommandLineParameters.BasePath,
+	}
+
 	rootMux := goji.NewMux()
 	log.Printf("Configuring root prefix to be %#v", CommandLineParameters.BasePath)
 	mux := goji.SubMux()
@@ -80,20 +89,17 @@ func main() {
 		RemoteAddressHeaders: []string{"X-Real-IP", "X-Forwarded-For"},
 		OutputFlags: log.LstdFlags,
 	}).Handler)
+	rootMux.Use(magicSinglePageApplicationHandler)
 
+	apiMux := goji.SubMux()
+	apiMux.HandleFunc(pat.New("/config"), reportConfigurationHandler)
+	apiMux.HandleFunc(pat.New("/build-report/:buildId"), buildReportHandler)
+	apiMux.HandleFunc(pat.New("/builds"), recentBuildSummaryHandler)
+	apiMux.HandleFunc(pat.New("/builds/:project"), recentBuildSummaryHandler)
+
+	mux.Handle(pat.New("/api/*"), apiMux)
 	webAppFilesHandler := http.StripPrefix(basePrefix, http.FileServer(http.Dir(CommandLineParameters.AppFilesPath)))
-	mux.Handle(pat.New("/"), webAppFilesHandler)
-	mux.Handle(pat.New("/:file.:ext"), webAppFilesHandler)
-	mux.Handle(pat.New("/static/*"), webAppFilesHandler)
-	mux.Handle(pat.New("/images/*"), webAppFilesHandler)
-	if CommandLineParameters.AgentImagesPath != "" {
-		agentImagesHandler := http.StripPrefix(fmt.Sprintf("%s/agents", basePrefix), http.FileServer(http.Dir(CommandLineParameters.AgentImagesPath)))
-		mux.Handle(pat.New("/agents/*"), agentImagesHandler)
-	}
-	mux.HandleFunc(pat.New("/api/config"), reportConfigurationHandler)
-	mux.HandleFunc(pat.New("/api/build-report/:buildId"), buildReportHandler)
-	mux.HandleFunc(pat.New("/api/builds"), recentBuildSummaryHandler)
-	mux.HandleFunc(pat.New("/api/builds/:project"), recentBuildSummaryHandler)
+	mux.Handle(pat.New("/*"), webAppFilesHandler)
 
 
 	// serve content
@@ -125,7 +131,6 @@ type Parameters struct {
 	BasePath string
 	ListenAddress string
 	AppFilesPath string
-	AgentImagesPath string
 	MongoUrl string
 	AgentImageUrlTemplate string
 	SlickUrl string
@@ -138,6 +143,7 @@ type ReportConfiguration struct {
 	AgentImagePollInterval int
 	SlickUrl string
 	AgentImageUrlTemplate string
+	Prefix string
 }
 
 type CurrentlyRunningTest struct {
@@ -207,6 +213,7 @@ type ExtendedTestrunSummary struct {
 var (
 	ResultsCollection *mongo.Collection
 	ProjectsCollection *mongo.Collection
+	Configuration *ReportConfiguration
 	CommandLineParameters = Parameters{
 		ListenPort: 9111,
 		BasePath: "/",
@@ -365,10 +372,6 @@ func validateConfiguration() error {
 		configurationErrors = append(configurationErrors, "slick url cannot be empty: please supply -slick-url or CONFIG_SLICK_URL")
 	}
 
-	if CommandLineParameters.AgentImagesPath != "" && directoryMissing(CommandLineParameters.AgentImagesPath) {
-		configurationErrors = append(configurationErrors, fmt.Sprintf("unable to locate agent images path to serve %#v", CommandLineParameters.AgentImagesPath))
-	}
-
 	if directoryMissing(CommandLineParameters.AppFilesPath) {
 		configurationErrors = append(configurationErrors, fmt.Sprintf("unable to locate web app files to serve from %#v", CommandLineParameters.AppFilesPath))
 	}
@@ -429,7 +432,7 @@ func writeJsonResponse(w http.ResponseWriter, body interface{}) {
 			log.Printf("Error occurred while trying to write http response: %s", err.Error())
 		}
 	}
-	w.Header().Add("Content-Type", "application/json")
+	w.Header().Add("Content-Type", "application/json;charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, err = w.Write(bodyText)
 	if err != nil {
@@ -437,13 +440,35 @@ func writeJsonResponse(w http.ResponseWriter, body interface{}) {
 	}
 }
 
+func magicSinglePageApplicationHandler(inner http.Handler) http.Handler {
+	ApiPrefix := fmt.Sprintf("%s/api", CommandLineParameters.BasePath)
+	if strings.HasSuffix(CommandLineParameters.BasePath, "/") {
+		ApiPrefix = fmt.Sprintf("%sapi", CommandLineParameters.BasePath)
+	}
+	indexContent, err := ioutil.ReadFile(path.Join(CommandLineParameters.AppFilesPath, "index.html"))
+	if err != nil {
+		log.Fatalf("ERROR: unable to read in index.html from %s: %s\n", CommandLineParameters.AppFilesPath, err.Error())
+	}
+	indexString := string(indexContent)
+	indexString = strings.Replace(indexString, "base href=\"/\"", fmt.Sprintf("base href=\"%s\"", CommandLineParameters.BasePath), 1)
+	mw := func(w http.ResponseWriter, r *http.Request) {
+		dotPos := strings.LastIndex(r.URL.Path, ".")
+		if strings.HasPrefix(r.URL.Path, ApiPrefix) || (dotPos > 0 && (len(r.URL.Path) - dotPos) <= 5) {
+			inner.ServeHTTP(w, r)
+		} else {
+			w.Header().Set("Content-Type", "text/html;charset=utf-8")
+			w.WriteHeader(http.StatusOK)
+			_, err = fmt.Fprint(w, indexString)
+			if err != nil {
+				log.Printf("Error occured while outputing index.html: %s", err.Error())
+			}
+		}
+	}
+	return http.HandlerFunc(mw)
+}
+
 func reportConfigurationHandler(w http.ResponseWriter, r *http.Request) {
-	writeJsonResponse(w, &ReportConfiguration{
-		SlickUrl: CommandLineParameters.SlickUrl,
-		AgentImageUrlTemplate: CommandLineParameters.AgentImageUrlTemplate,
-		AgentImagePollInterval: CommandLineParameters.AgentImagePollInterval,
-		ReportPollInterval: CommandLineParameters.ReportPollInterval,
-	})
+	writeJsonResponse(w, Configuration)
 }
 
 func buildReportHandler(w http.ResponseWriter, r *http.Request) {
