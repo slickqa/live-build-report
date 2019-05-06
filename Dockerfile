@@ -1,8 +1,7 @@
 FROM scratch
 WORKDIR /
 COPY live-build-report /live-build-report
-RUN mkdir /web
-COPY web/build/* /web
+COPY web/build /web
 ENV CONFIG_PORT 9111
 ENV CONFIG_APP_PATH /web
 ENV CONFIG_BASE_URL /
