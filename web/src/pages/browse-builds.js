@@ -1,5 +1,5 @@
 import React, { Component } from "react";
-import { observer, inject } from 'mobx-react';
+import { observer } from 'mobx-react';
 import { Panel } from '../components/panels';
 import BuildReportLink from '../components/build-report-link';
 import { Heading, DataTable, Box, Meter } from "grommet";
@@ -57,7 +57,7 @@ class BrowseBuildsPage extends Component {
     }
 
     render() {
-        return <Panel>
+        return <Panel margin="small">
             <Box align="center"><Heading margin={{top: "none"}} textAlign="center">Recent Builds</Heading></Box>
             <DataTable columns={[
                 {

@@ -1,39 +1,48 @@
 import React, { Component } from "react";
 import { Box, Meter, Stack, Text } from "grommet";
+import { observer } from "mobx-react";
+import { observable, computed, decorate } from "mobx";
 
-export default class LabeledMeter extends Component {
+class LabeledMeter extends Component {
 
-    constructor(props) {
-        super(props);
-        let total = 0;
-        props.values.forEach((item) => {
-           total += item.value;
-        });
-        const { defaultValue } = this.props;
-        this.defaultItem = {
-            value: 0,
-            label: undefined,
+    current = {
+        active: undefined,
+        label: "",
+        color: "status-unknown"
+    };
+
+    get defaultItem() {
+        let defItem = {
+            value: undefined,
+            label: "",
             color: undefined
         };
+        const { defaultValue } = this.props;
         if(defaultValue) {
             this.props.values.forEach(value => {
                 if(defaultValue === value.label) {
-                    this.defaultItem.value = value.value;
-                    this.defaultItem.label = value.label;
-                    this.defaultItem.color = value.color;
+                    defItem.value = value.value;
+                    defItem.label = value.label;
+                    defItem.color = value.color;
                 }
             });
         }
-        this.state = {
-            total: total,
-            active: this.defaultItem.value,
-            label: this.defaultItem.label,
-            color: this.defaultItem.color
-        }
+        return defItem;
     }
 
     render() {
-        const { active, label, total, color } = this.state;
+        let props = this.props;
+        let total = 0;
+        props.values.forEach((item) => {
+            total += item.value;
+        });
+
+        let current = {
+            active: this.current.active ? this.current.active : this.defaultItem.value,
+            label: this.current.active ? this.current.label : this.defaultItem.label,
+            color: this.current.active ? this.current.color : this.defaultItem.color
+        }
+
         return (
             <Stack anchor="center">
                 <Meter
@@ -42,26 +51,31 @@ export default class LabeledMeter extends Component {
                         return {
                             value: item.value,
                             color: item.color,
-                            onHover: over =>
-                                this.setState({
-                                    active: over ? item.value : this.defaultItem.value,
-                                    label: over ? item.label : this.defaultItem.label,
-                                    color: over ? item.color : this.defaultItem.color
-                                })
+                            onHover: over => {
+                                this.current.active = over ? item.value : this.defaultItem.value;
+                                this.current.label = over ? item.label : this.defaultItem.label;
+                                this.current.color = over ? item.color : this.defaultItem.color;
+                            }
                         }
                     })}
-                    max={this.state.total}
+                    max={total}
                 />
                 <Box align="center">
                     <Box direction="row" align="center" pad={{ bottom: "xsmall" }}>
-                        <Text size="xxlarge" weight="bold" color={color}>
-                            {active || total}
+                        <Text size="xxlarge" weight="bold" color={current.color}>
+                            {current.active}
                         </Text>
                     </Box>
-                    <Text color={color}>{label || "Total"}</Text>
+                    <Text color={current.color}>{current.label}</Text>
                 </Box>
             </Stack>
         );
     }
 }
 
+decorate(LabeledMeter, {
+    current: observable,
+    defaultItem: computed
+});
+
+export default observer(LabeledMeter);

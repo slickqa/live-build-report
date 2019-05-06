@@ -1,10 +1,9 @@
 import React, { Component } from 'react';
 import { Grommet } from 'grommet';
-import createBrowserHistory from 'history/createBrowserHistory';
-import { Provider } from 'mobx-react';
-import { RouterStore, syncHistoryWithStore } from 'mobx-react-router';
-import { Router, Route } from 'react-router';
+import { Route } from 'react-router';
+import { BrowserRouter } from 'react-router-dom';
 import BrowseBuildsPage from './pages/browse-builds';
+import BuildReportPage from './pages/build-report';
 
 
 const BlueTheme = {
@@ -30,27 +29,15 @@ const BlueTheme = {
     "layer": {"border": {"radius": "4px"}}
 };
 
-const browserHistory = createBrowserHistory();
-const routingStore = new RouterStore();
-
-const stores = {
-    // Key can be whatever you want
-    routing: routingStore,
-    // ...other stores
-};
-
-const history = syncHistoryWithStore(browserHistory, routingStore);
-
 
 class App extends Component {
   render() {
     return (
-      <Grommet theme={BlueTheme}>
-          <Provider {...stores}>
-              <Router history={history}>
-                  <Route path="/" component={BrowseBuildsPage} />
-              </Router>
-          </Provider>
+      <Grommet full={true} theme={BlueTheme}>
+        <BrowserRouter>
+          <Route path="/" exact component={BrowseBuildsPage} />
+          <Route path="/build-report/:id" component={BuildReportPage} />
+        </BrowserRouter>
       </Grommet>
     );
   }
