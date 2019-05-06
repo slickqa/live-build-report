@@ -1,4 +1,4 @@
-module github.com/slickqa/slickqa-live-build-report
+module github.com/slickqa/live-build-report
 
 go 1.12
 

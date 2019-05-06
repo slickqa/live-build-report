@@ -1,14 +1,14 @@
-FROM golang as builder
-RUN mkdir -p /go/src/agent-config-service
-ADD . /go/src/agent-config-service/
-WORKDIR /go/src/agent-config-service
-RUN go get .
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags '-extldflags "-static"' -o agent-config-service .
 FROM scratch
 WORKDIR /
-COPY --from=builder /go/src/agent-config-service /
-ENV CONFIG_PORT 9042
-ENV CONFIG_STORAGE /data
+COPY live-build-report /live-build-report
+RUN mkdir /web
+COPY web/build/* /web
+ENV CONFIG_PORT 9111
+ENV CONFIG_APP_PATH /web
+ENV CONFIG_BASE_URL /
+ENV CONFIG_MONGO mongodb://localhost/slick
+ENV CONFIG_SLICK_URL http://localhost
+ENV CONFIG_POLL_INTERVAL 3000
 VOLUME /data
 
-CMD ["./agent-config-service"]
+CMD ["./live-build-report"]
