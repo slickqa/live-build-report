@@ -450,7 +450,7 @@ func magicSinglePageApplicationHandler(inner http.Handler) http.Handler {
 		log.Fatalf("ERROR: unable to read in index.html from %s: %s\n", CommandLineParameters.AppFilesPath, err.Error())
 	}
 	indexString := string(indexContent)
-	indexString = strings.Replace(indexString, "base href=\"/\"", fmt.Sprintf("base href=\"%s\"", CommandLineParameters.BasePath), 1)
+	indexString = strings.ReplaceAll(indexString, "ROOT/", CommandLineParameters.BasePath)
 	mw := func(w http.ResponseWriter, r *http.Request) {
 		dotPos := strings.LastIndex(r.URL.Path, ".")
 		if strings.HasPrefix(r.URL.Path, ApiPrefix) || (dotPos > 0 && (len(r.URL.Path) - dotPos) <= 5) {

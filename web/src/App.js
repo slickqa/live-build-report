@@ -32,9 +32,10 @@ const BlueTheme = {
 
 class App extends Component {
   render() {
+    let baseTag = document.getElementsByTagName("base")[0];
     return (
       <Grommet full={true} theme={BlueTheme}>
-        <BrowserRouter>
+        <BrowserRouter basename={baseTag.getAttribute("href")}>
           <Route path="/" exact component={BrowseBuildsPage} />
           <Route path="/build-report/:id" component={BuildReportPage} />
         </BrowserRouter>
