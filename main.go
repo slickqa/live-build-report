@@ -207,6 +207,11 @@ type ExtendedTestrunSummary struct {
 	TO_BE_RUN int `bson:"TO_BE_RUN"`
 	RUNNING int `bson:"RUNNING"`
 	FINISHED int `bson:"FINISHED"`
+	Started *time.Time `bson:"started"`
+	Finished *time.Time `bson:"finished"`
+	ProjectName string `bson:"project"`
+	ReleaseName string `bson:"release"`
+	BuildName string `bson:"build"`
 	CurrentlyRunning []CurrentlyRunningTest `bson:"currentlyRunning"`
 }
 
@@ -237,6 +242,11 @@ var (
 			"TO_BE_RUN":   counterFor("$runstatus", "TO_BE_RUN"),
 			"RUNNING":   counterFor("$runstatus", "RUNNING"),
 			"FINISHED":   counterFor("$runstatus", "FINISHED"),
+			"build": bson.M{ "$first": "$build.name"},
+			"release": bson.M{ "$first": "$release.name"},
+			"project": bson.M{ "$first": "$project.name"},
+			"started": bson.M{ "$min": "$started"},
+			"finished": bson.M{ "$max": "$finished"},
 			"currentlyRunning": bson.M{
 				"$addToSet": bson.M{
 					"$cond": bson.M{

@@ -61,10 +61,13 @@ class LabeledMeter extends Component {
                     max={total}
                 />
                 <Box align="center">
-                    <Box direction="row" align="center" pad={{ bottom: "xsmall" }}>
+                    <Box direction="row" align="center">
                         <Text size="xxlarge" weight="bold" color={current.color}>
                             {current.active}
                         </Text>
+                    </Box>
+                    <Box align="center">
+                        {this.props.percentage ? <Text color={current.color}>{((current.active / total) * 100).toFixed(1)}%</Text> : null}
                     </Box>
                     <Text color={current.color}>{current.label}</Text>
                 </Box>

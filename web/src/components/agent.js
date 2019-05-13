@@ -19,7 +19,6 @@ export default class Agent extends Component {
 
     getStatusColor() {
         let runtimeInMinutes = moment().diff(moment(this.props.result.Started), 'minutes');
-        console.log(runtimeInMinutes);
         let expected = parseInt(this.props.result.Attributes.estimatedRuntime)
         if(runtimeInMinutes >= (expected - 1) &&
            runtimeInMinutes <= (expected + 1)) {

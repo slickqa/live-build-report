@@ -11,7 +11,7 @@ class LiveOverviewPanel extends Component {
     let { report } = this.props;
     return (
       <Box>
-        <Box margin="small" direction="row" gap="small" justify="center" wrap={true}>
+        <Box margin="small" direction="row" gap="small" justify="center" wrap={true} style={{minHeight:"4.5in"}}>
             <Panel width="medium">
                 <LabeledMeter defaultValue={report.RUNNING > 0 ? "Running" : "Finished"} values={[
                     {
@@ -37,7 +37,7 @@ class LiveOverviewPanel extends Component {
                 ]} />
             </Panel>
             <Panel width="medium">
-                <LabeledMeter defaultValue="PASS" values={[
+                <LabeledMeter defaultValue="PASS" percentage={true} values={[
                     {
                         value: report.NO_RESULT,
                         label: "NO RESULT",
@@ -69,7 +69,7 @@ class LiveOverviewPanel extends Component {
         <Box margin="small" direction="row" gap="small" justify="center" wrap={true}>
           {report.currentlyRunning.map((result) => {
             return(
-              <Agent result={result}/>
+              <Agent key={result.Id} result={result}/>
             );
           })}
         </Box>
