@@ -7,7 +7,7 @@ RUN GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -a -ldflags '-extldflags "-st
 FROM node:lts-stretch as webbuild
 COPY web /web
 WORKDIR /web
-RUN PUBLIC_URL=ROOT/ npm install; npm run build
+RUN npm install; PUBLIC_URL=ROOT/ npm run build
 
 FROM scratch
 WORKDIR /
