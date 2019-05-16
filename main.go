@@ -96,6 +96,7 @@ func main() {
 	apiMux.HandleFunc(pat.New("/build-report/:buildId"), buildReportHandler)
 	apiMux.HandleFunc(pat.New("/builds"), recentBuildSummaryHandler)
 	apiMux.HandleFunc(pat.New("/builds/:project"), recentBuildSummaryHandler)
+	apiMux.HandleFunc(pat.New("/projects"), currentProjectsListHandler)
 
 	mux.Handle(pat.New("/api/*"), apiMux)
 	webAppFilesHandler := http.StripPrefix(basePrefix, http.FileServer(http.Dir(CommandLineParameters.AppFilesPath)))
@@ -125,6 +126,11 @@ func main() {
 	}
 }
 // ------------ Types and variables ------------------------------------------
+
+type Project struct {
+	Id primitive.ObjectID `bson:"_id" json:"id"`
+	Name string `bson:"name" json:"name"`
+}
 
 type Parameters struct {
 	ListenPort int
@@ -563,4 +569,29 @@ func recentBuildSummaryHandler(w http.ResponseWriter, r *http.Request) {
 		builds = append(builds, item)
 	}
 	writeJsonResponse(w, &builds)
+}
+
+func currentProjectsListHandler(w http.ResponseWriter, r *http.Request) {
+	cursor, err := ProjectsCollection.Find(context.Background(), bson.M{}, &options.FindOptions{Projection: bson.M{"name": 1}})
+	if err != nil {
+		log.Printf("Error listing Projects: %s", err.Error())
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = fmt.Fprintln(w, "Error occurred while trying to query database for projects")
+		return
+	}
+	var projects []Project
+	for cursor.Next(context.Background()) {
+		var item Project
+		err = cursor.Decode(&item)
+		if err != nil {
+			log.Printf("Error decoding projects from mongo: %s", err.Error())
+			w.Header().Set("Content-Type", "text/plain")
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = fmt.Fprintln(w, "Error occurred while trying to decode project list from database.")
+			return
+		}
+		projects = append(projects, item)
+	}
+	writeJsonResponse(w, projects)
 }

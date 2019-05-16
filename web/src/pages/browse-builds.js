@@ -2,16 +2,60 @@ import React, { Component } from "react";
 import { observer } from 'mobx-react';
 import { Panel } from '../components/panels';
 import BuildReportLink from '../components/build-report-link';
-import { Heading, DataTable, Box, Meter } from "grommet";
+import { Heading, DataTable, Box, Meter, Select } from "grommet";
 import { decorate, observable } from "mobx";
+import Cookies from "js-cookie";
 
 
 class BrowseBuildsPage extends Component {
 
+
     builds = [];
+    projects = ["All"];
+    currentProject = "All";
+
+    getProjects() {
+        fetch("api/projects", {headers: {Accept: "application/json"}}).then((resp) => {
+            resp.json().then((projects) => {
+                let newProjectsList = ["All"];
+                projects.forEach((project) => {
+                    newProjectsList.push(project.name);
+                });
+                this.projects = newProjectsList;
+                let savedSettings = Cookies.getJSON("slick-live-build");
+                if(savedSettings && savedSettings.project) {
+                    this.currentProject = savedSettings.project;
+                }
+            });
+        });
+    }
+
+    setCurrentProject(project) {
+        if(this.nextPoll) {
+            clearTimeout(this.nextPoll);
+            this.nextPoll = "";
+        }
+        if(project === "All") {
+            Cookies.set("slick-live-build", {project: null}, {expires: 3650});
+            this.currentProject = project;
+        } else {
+            Cookies.set("slick-live-build", {project: project}, {expires: 3650});
+            this.currentProject = project;
+        }
+        this.getBuilds();
+    }
 
     getBuilds() {
-        fetch("api/builds", {headers: {Accept: "application/json"}}).then((resp) => {
+        if(this.nextPoll) {
+            this.nextPoll = undefined;
+        }
+        window.Cookies = Cookies;
+        let savedSettings = Cookies.getJSON("slick-live-build");
+        let url = "api/builds";
+        if(savedSettings && savedSettings.project) {
+            url = url + "/" + savedSettings.project;
+        }
+        fetch(url, {headers: {Accept: "application/json"}}).then((resp) => {
             resp.json().then((builds) => {
                 for (let i = 0; i < builds.length; i++) {
                     builds[i].name = builds[i].Release.Name + "." + builds[i].Release.Build.Name;
@@ -38,17 +82,24 @@ class BrowseBuildsPage extends Component {
                     builds[i].complete = Math.ceil(((builds[i].finished / builds[i].total) * 100));
                 }
                 this.builds = builds;
-                this.nextPoll = setTimeout(this.getBuilds.bind(this), 3000);
+                if(!this.nextPoll) {
+                    this.nextPoll = setTimeout(this.getBuilds.bind(this), 3000);
+                }
             }, () => {
-                this.nextPoll = setTimeout(this.getBuilds.bind(this), 3000);
+                if(!this.nextPoll) {
+                    this.nextPoll = setTimeout(this.getBuilds.bind(this), 3000);
+                }
             });
         }, () => {
-            this.nextPoll = setTimeout(this.getBuilds.bind(this), 3000);
+            if(!this.nextPoll) {
+                this.nextPoll = setTimeout(this.getBuilds.bind(this), 3000);
+            }
         });
     }
 
 
     componentDidMount() {
+        this.getProjects();
         this.getBuilds();
     }
 
@@ -58,7 +109,8 @@ class BrowseBuildsPage extends Component {
 
     render() {
         return <Panel margin="small">
-            <Box align="center"><Heading margin={{top: "none"}} textAlign="center">Recent Builds</Heading></Box>
+            <Box align="center"><Heading margin={{top: "none", bottom: "small"}} textAlign="center">Recent Builds</Heading></Box>
+            <Box align="end" margin={{bottom: "small"}}><Select options={this.projects} value={this.currentProject} onChange={(option) => { this.setCurrentProject(option.value);}}/></Box>
             <DataTable columns={[
                 {
                     property: "ProjectName",
@@ -125,7 +177,9 @@ class BrowseBuildsPage extends Component {
 }
 
 decorate(BrowseBuildsPage, {
-    builds: observable
+    builds: observable,
+    projects: observable,
+    currentProject: observable
 });
 
 export default observer(BrowseBuildsPage);
