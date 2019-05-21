@@ -69,7 +69,7 @@ class BuildReportPage extends Component {
                     overallStatus.TOTAL += (testrun.SCHEDULED + testrun.TO_BE_RUN + testrun.RUNNING + testrun.FINISHED);
                     overallStatus.currentlyRunning.push(...testrun.CurrentlyRunning);
                     let testrunStarted = new Date(testrun.Started);
-                    if(testrunStarted < overallStatus.started) {
+                    if(testrun.Started && testrunStarted < overallStatus.started) {
                         overallStatus.started = testrunStarted;
                     }
                     let testrunFinished = new Date(testrun.Finished);
